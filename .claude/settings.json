@@ -1,0 +1,5 @@
+{
+  "name": "nova-loop",
+  "description": "Autonomous build-verify-fix-publish-review loop for Claude Code. Ships features from spec to PR with minimal human intervention.",
+  "version": "1.0.0"
+}
