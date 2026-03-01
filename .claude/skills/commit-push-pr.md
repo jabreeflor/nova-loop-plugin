@@ -24,6 +24,7 @@ Run these in parallel:
 - Write a concise commit message that:
   - Summarizes the **why** not the what
   - Matches the repo's existing commit style
+  - If called from Nova Loop: prefix with `[nova cycle N]` where N is the current cycle number
   - Ends with `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
 - Use a HEREDOC to pass the message:
 ```bash
@@ -54,17 +55,27 @@ gh pr create --title "<short title>" --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points describing the changes>
 
+## Nova Loop Status
+- Cycle: N of M
+- Verify: pass/fail
+- Review: PASS/FAIL
+
 ## Test plan
 - [ ] <testing checklist items>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [Claude Code](https://claude.com/claude-code) via Nova Loop
 EOF
 )"
 ```
 
+When not called from Nova Loop, omit the "Nova Loop Status" section and use the standard footer:
+```
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
 **If a PR already exists**, the push is enough — the PR auto-updates. Optionally add a comment summarizing the new changes:
 ```bash
-gh pr comment --body "Updated: <brief summary of new changes>"
+gh pr comment --body "Updated (cycle N): <brief summary of new changes>"
 ```
 
 ### 5. Report back

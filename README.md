@@ -1,6 +1,6 @@
 # Nova Loop — Claude Code Plugin
 
-Autonomous **build → verify → fix → publish → review** loop for [Claude Code](https://claude.com/claude-code). Takes a feature spec and ships it to a PR-ready state with minimal human intervention.
+Dual-agent autonomous **build → verify → fix → publish → review** loop for [Claude Code](https://claude.com/claude-code). A Builder agent implements features while a read-only Reviewer agent audits PRs, shipping specs to PR-ready state with minimal human intervention.
 
 ## Install
 
@@ -23,46 +23,88 @@ claude plugin link .
 | `/nova-loop <spec.md> [--cycles N] [--retries N]` | Start the autonomous loop |
 | `/commit-push-pr` | Commit + push + create/update PR in one step |
 | `/cancel-nova` | Stop an active loop and clean up |
-| `/help` | Show plugin help |
+| `/nova-help` | Show plugin help |
 
 ## Architecture
 
 ```
 SETUP
-─────
-  Feature spec → Worktree (isolated copy) → AI learns codebase
+═══════════════════════════════════════════════════════════════════════
+
+ ┌──────────┐    ┌──────────┐    ┌──────────────┐  ┌──────────────┐
+ │   READ   │    │  CREATE  │    │   BUILDER    │  │  REVIEWER    │
+ │   SPEC   │───>│ WORKTREE │───>│   SCOUT      │  │   SCOUT      │
+ │          │    │          │    │              │  │              │
+ │ feature  │    │ isolated │    │ structure,   │  │ architecture,│
+ │ spec.md  │    │ branch   │    │ conventions, │  │ security,    │
+ │          │    │          │    │ build system │  │ quality norms│
+ └──────────┘    └──────────┘    └──────────────┘  └──────────────┘
+                                       │                  │
+                                       └──── parallel ────┘
 
 THE LOOP (up to N cycles)
-─────────────────────────
+═══════════════════════════════════════════════════════════════════════
 
-  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
-  │  BUILD  │───>│ VERIFY  │───>│   FIX   │───>│ PUBLISH │───>│ REVIEW  │
-  │         │    │         │    │ (retry) │    │         │    │         │
-  │ TDD     │    │ tests   │    │ read    │    │ commit  │    │ PR diff │
-  │ style   │    │ lint    │    │ errors, │    │ push    │    │ only    │
-  │         │    │ types   │    │ fix     │    │ PR      │    │ (read-  │
-  └─────────┘    └─────────┘    └─────────┘    └─────────┘    │  only)  │
-       ↑                                                       └────┬────┘
-       │                                                            │
-       │         pass → DONE (PR ready for human review)            │
-       │                                                            │
-       └──── fail → findings extracted and fed back to builder ─────┘
+  INNER LOOP (up to N retries)
+  ┌─────────────────────────────────────────────────┐
+  │                                                 │
+  │  ┌─────────┐    ┌─────────┐    ┌─────────┐     │
+  │  │  BUILD  │───>│ VERIFY  │──┬>│   FIX   │──┐  │
+  │  │         │    │         │  │ │         │  │  │
+  │  │ TDD     │    │ tests   │  │ │ read    │  │  │
+  │  │ style   │    │ lint    │  │ │ errors, │  │  │
+  │  │         │    │ types   │  │ │ fix     │  │  │
+  │  └─────────┘    └─────────┘  │ └─────────┘  │  │
+  │       ↑                      │       │       │  │
+  │       │                 fail │       └───────┘  │
+  │       │                      │     retry loop   │
+  │       │                      │                  │
+  └───────│──────────────────────│──────────────────┘
+          │                 pass │
+          │                      ▼
+          │              ┌──────────┐    ┌──────────────────┐
+          │              │ PUBLISH  │───>│     REVIEW       │
+          │              │          │    │                  │
+          │              │ commit   │    │ Read-only agent  │
+          │              │ push     │    │ gh pr diff ONLY  │
+          │              │ PR       │    │ gh pr view ONLY  │
+          │              └──────────┘    └────────┬─────────┘
+          │                                       │
+          │         pass → DONE (PR ready)        │
+          │                                       │
+          └──── fail → findings fed back ─────────┘
 ```
 
-### Build
-Plans the approach from the spec, writes tests first (TDD), then implements the feature following existing project conventions.
+### Builder Agent
 
-### Verify
-Runs the project's test suite, linting, and type-checking. Checks that the implementation matches the spec.
+Full read/write access. Plans the approach from the spec, writes tests first (TDD), then implements the feature following existing project conventions. Fixes issues from verification failures and review findings.
 
-### Fix (inner loop)
-If verification fails, reads error output and fixes root causes. Retries up to N times before proceeding.
+### Reviewer Agent
 
-### Publish
-Uses `/commit-push-pr` to commit all changes, push to the feature branch, and create or update the pull request.
+Strictly read-only (Explore-type agent). Spawned each cycle to audit the PR. Can only use `gh pr diff` and `gh pr view` — cannot read files directly or edit code. Returns a structured verdict (PASS/FAIL) with categorized findings by severity.
 
-### Review
-Switches to reviewer mode. Reads the PR diff via GitHub CLI only — cannot touch the code. Evaluates correctness, architecture, testing, security, and code quality. Categorizes findings by severity and sends major findings back to the builder.
+### How the Agents Communicate
+
+The agents don't talk to each other directly. The orchestrator mediates:
+
+1. **Setup** — Two parallel Explore agents scout the codebase. Builder scout reports structure and conventions; Reviewer scout reports architecture and quality norms.
+2. **Build** — The orchestrator uses Builder knowledge + any prior review findings to implement.
+3. **Review** — A fresh Explore agent receives Reviewer knowledge + the feature spec, then audits the PR via GitHub CLI.
+4. **Feedback** — If the review fails, the orchestrator extracts findings and feeds them into the next BUILD cycle.
+
+### Review Categories
+
+| Category | Description |
+|----------|-------------|
+| `bug/major` | Will cause runtime failures |
+| `bug/minor` | Edge case bug |
+| `architecture/major` | Wrong layer, needs restructuring |
+| `architecture/minor` | Could be better, works fine |
+| `testing/major` | Missing critical coverage |
+| `testing/minor` | Missing edge case test |
+| `security/major` | Exploitable vulnerability |
+| `security/minor` | Defensive improvement |
+| `style/minor` | Naming, formatting nits |
 
 ## Feature Spec Format
 

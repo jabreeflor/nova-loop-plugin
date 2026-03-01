@@ -1,5 +1,5 @@
 {
   "name": "nova-loop",
-  "description": "Autonomous build-verify-fix-publish-review loop for Claude Code. Ships features from spec to PR with minimal human intervention.",
-  "version": "1.0.0"
+  "description": "Dual-agent autonomous build-verify-fix-publish-review loop for Claude Code. A Builder agent implements features while a read-only Reviewer agent audits PRs via GitHub API, shipping specs to PR-ready state with minimal human intervention.",
+  "version": "2.0.0"
 }
